@@ -37,6 +37,7 @@ local Players = game:GetService("Players")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
+-- ESP Settings
 local ESPSettings = {
     Enabled = false,
     BoxESP = true,
@@ -44,17 +45,25 @@ local ESPSettings = {
     Tracers = false,
     UseVisible = false,
     TeamCheck = false,
+    ShowNames = true,
+    ShowDistance = true,
     BoxColor = Color3.fromRGB(255, 255, 255),
     SkeletonColor = Color3.fromRGB(255, 255, 255),
     TracerColor = Color3.fromRGB(255, 255, 255),
     VisibleColor = Color3.fromRGB(0, 255, 0),
-    BoxScale = 0.5,
-    SkeletonScale = 1.25
+    BoxScale = 0.2,
+
+    -- Visibility parts
+    CheckHead = true,
+    CheckTorso = true,
+    CheckArms = true,
+    CheckLegs = true,
+    CheckHRP = true
 }
 
 local espObjects = {}
 
--- Utility function to parse RGB safely
+-- Utility: Parse RGB from string
 local function parseRGB(input, default)
     local r, g, b = input:match("(%d+),(%d+),(%d+)")
     if r and g and b then
@@ -67,19 +76,46 @@ local function parseRGB(input, default)
     return default
 end
 
--- ESP Utility Functions
-local function inView(position)
-    local camLook = Camera.CFrame.LookVector
-    local dir = (position - Camera.CFrame.Position).Unit
-    return camLook:Dot(dir) > 0
+-- Smart visibility check (raycast)
+local function isVisibleSmart(character)
+    if not ESPSettings.UseVisible then return true end
+
+    local partsToCheck = {}
+
+    if ESPSettings.CheckHead and character:FindFirstChild("Head") then
+        table.insert(partsToCheck, character.Head)
+    end
+    if ESPSettings.CheckTorso and (character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")) then
+        table.insert(partsToCheck, character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso"))
+    end
+    if ESPSettings.CheckArms then
+        local leftArm = character:FindFirstChild("Left Arm") or character:FindFirstChild("LeftUpperArm")
+        local rightArm = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightUpperArm")
+        if leftArm then table.insert(partsToCheck, leftArm) end
+        if rightArm then table.insert(partsToCheck, rightArm) end
+    end
+    if ESPSettings.CheckLegs then
+        local leftLeg = character:FindFirstChild("Left Leg") or character:FindFirstChild("LeftUpperLeg")
+        local rightLeg = character:FindFirstChild("Right Leg") or character:FindFirstChild("RightUpperLeg")
+        if leftLeg then table.insert(partsToCheck, leftLeg) end
+        if rightLeg then table.insert(partsToCheck, rightLeg) end
+    end
+    if ESPSettings.CheckHRP and character:FindFirstChild("HumanoidRootPart") then
+        table.insert(partsToCheck, character.HumanoidRootPart)
+    end
+
+    for _, part in ipairs(partsToCheck) do
+        local ray = Ray.new(Camera.CFrame.Position, (part.Position - Camera.CFrame.Position).Unit * 5000)
+        local hitPart = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character}, false, true)
+        if not hitPart or hitPart:IsDescendantOf(character) then
+            return true
+        end
+    end
+
+    return false
 end
 
-local function isVisible(targetPart)
-    local ray = Ray.new(Camera.CFrame.Position, (targetPart.Position - Camera.CFrame.Position).Unit * 5000)
-    local part = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character}, false, true)
-    return (not part or part:IsDescendantOf(targetPart.Parent))
-end
-
+-- Skeleton lines creation
 local function createSkeleton()
     local lines = {}
     for i = 1, 6 do
@@ -91,7 +127,7 @@ local function createSkeleton()
     return lines
 end
 
--- Create ESP objects
+-- Create ESP for a player
 local function createESP(player)
     if espObjects[player] then return end
     espObjects[player] = {
@@ -102,29 +138,40 @@ local function createESP(player)
         Distance = Drawing.new("Text")
     }
 
-    -- Box
+    -- Box setup
     espObjects[player].Box.Thickness = 2
     espObjects[player].Box.Filled = false
     espObjects[player].Box.Visible = false
 
-    -- Tracer
+    -- Tracer setup
     espObjects[player].Tracer.Thickness = 1.5
     espObjects[player].Tracer.Visible = false
 
-    -- Name
+    -- Name setup
     espObjects[player].Name.Center = true
     espObjects[player].Name.Outline = true
     espObjects[player].Name.Size = 16
     espObjects[player].Name.Visible = false
 
-    -- Distance
+    -- Distance setup
     espObjects[player].Distance.Center = true
     espObjects[player].Distance.Outline = true
     espObjects[player].Distance.Size = 14
     espObjects[player].Distance.Visible = false
+
+    -- Cache character parts
+    espObjects[player].Parts = {
+        Head = player.Character:FindFirstChild("Head"),
+        UpperTorso = player.Character:FindFirstChild("UpperTorso") or player.Character:FindFirstChild("Torso"),
+        HRP = player.Character:FindFirstChild("HumanoidRootPart"),
+        LeftArm = player.Character:FindFirstChild("Left Arm") or player.Character:FindFirstChild("LeftUpperArm"),
+        RightArm = player.Character:FindFirstChild("Right Arm") or player.Character:FindFirstChild("RightUpperArm"),
+        LeftLeg = player.Character:FindFirstChild("Left Leg") or player.Character:FindFirstChild("LeftUpperLeg"),
+        RightLeg = player.Character:FindFirstChild("Right Leg") or player.Character:FindFirstChild("RightUpperLeg")
+    }
 end
 
--- Cleanup ESP drawings
+-- Remove ESP
 local function removeESP(player)
     if not espObjects[player] then return end
     if espObjects[player].Box then espObjects[player].Box:Remove() end
@@ -137,22 +184,12 @@ end
 
 Players.PlayerRemoving:Connect(removeESP)
 
--- Refresh ESP periodically
-local function refreshESP()
-    for plr, _ in pairs(espObjects) do
-        removeESP(plr)
-    end
-end
+-- Visibility throttling
+local lastVisibilityCheck = 0
+local visibilityUpdateRate = 0.2
 
-spawn(function()
-    while wait(5) do
-        if ESPSettings.Enabled then
-            refreshESP()
-        end
-    end
-end)
-
-RunService.RenderStepped:Connect(function()
+-- Main ESP loop
+RunService.RenderStepped:Connect(function(delta)
     if not ESPSettings.Enabled then
         for _, v in pairs(espObjects) do
             v.Box.Visible = false
@@ -164,13 +201,34 @@ RunService.RenderStepped:Connect(function()
         return
     end
 
+    -- Update visibility cache
+    lastVisibilityCheck = lastVisibilityCheck + delta
+    if lastVisibilityCheck >= visibilityUpdateRate then
+        lastVisibilityCheck = 0
+        for _, player in pairs(Players:GetPlayers()) do
+            if espObjects[player] and player.Character then
+                espObjects[player].Visible = (not ESPSettings.UseVisible) or isVisibleSmart(player.Character)
+            end
+        end
+    end
+
     for _, player in pairs(Players:GetPlayers()) do
         if player == LocalPlayer or not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then continue end
-        createESP(player)
-        local hrp = player.Character.HumanoidRootPart
-        local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+        if not espObjects[player] then createESP(player) end
 
-        -- TEAM CHECK
+        local hrp = espObjects[player].Parts.HRP
+        local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+        local distance = (Camera.CFrame.Position - hrp.Position).Magnitude
+        if distance > 500 then
+            espObjects[player].Box.Visible = false
+            espObjects[player].Tracer.Visible = false
+            for _, l in pairs(espObjects[player].Skeleton) do l.Visible = false end
+            espObjects[player].Name.Visible = false
+            espObjects[player].Distance.Visible = false
+            continue
+        end
+
+        -- Team check
         if ESPSettings.TeamCheck and LocalPlayer.Team and player.Team == LocalPlayer.Team then
             espObjects[player].Box.Visible = false
             espObjects[player].Tracer.Visible = false
@@ -180,114 +238,88 @@ RunService.RenderStepped:Connect(function()
             continue
         end
 
-        if onScreen then
-            local colorBox = ESPSettings.BoxColor
-            local colorSkeleton = ESPSettings.SkeletonColor
-            local colorTracer = ESPSettings.TracerColor
-            if ESPSettings.UseVisible and isVisible(hrp) then
-                colorBox = ESPSettings.VisibleColor
-                colorSkeleton = ESPSettings.VisibleColor
-                colorTracer = ESPSettings.VisibleColor
-            end
+        -- Colors
+        local colorBox = ESPSettings.BoxColor
+        local colorSkeleton = ESPSettings.SkeletonColor
+        local colorTracer = ESPSettings.TracerColor
+        if ESPSettings.UseVisible and espObjects[player].Visible then
+            colorBox = ESPSettings.VisibleColor
+            colorSkeleton = ESPSettings.VisibleColor
+            colorTracer = ESPSettings.VisibleColor
+        end
 
-            -- Box ESP
-            if ESPSettings.BoxESP then
-                local box = espObjects[player].Box
-                local distance = (Camera.CFrame.Position - hrp.Position).Magnitude
-                local scale = ESPSettings.BoxScale / distance * 200
-                local width, height = 30 * scale, 60 * scale
+        -- Box
+        if ESPSettings.BoxESP then
+            local scale = ESPSettings.BoxScale / distance * 200
+            local width, height = 30 * scale, 60 * scale
+            local box = espObjects[player].Box
+            box.Position = Vector2.new(pos.X - width / 2, pos.Y - height / 2)
+            box.Size = Vector2.new(width, height)
+            box.Color = colorBox
+            box.Visible = onScreen
+        else
+            espObjects[player].Box.Visible = false
+        end
 
-                if ESPSettings.TeamCheck and LocalPlayer.Team and player.Team == LocalPlayer.Team then
-                    box.Visible = false
-                else
-                    box.Position = Vector2.new(pos.X - width / 2, pos.Y - height / 2)
-                    box.Size = Vector2.new(width, height)
-                    box.Color = colorBox
-                    box.Visible = true
-                end
-            else
-                espObjects[player].Box.Visible = false
-            end
-
-
-            -- Skeleton ESP
-            if ESPSettings.SkeletonESP then
-                local parts = {
-                    Head = player.Character:FindFirstChild("Head"),
-                    UpperTorso = player.Character:FindFirstChild("UpperTorso") or player.Character:FindFirstChild("Torso"),
-                    HRP = hrp,
-                    LeftArm = player.Character:FindFirstChild("Left Arm") or player.Character:FindFirstChild("LeftUpperArm"),
-                    RightArm = player.Character:FindFirstChild("Right Arm") or player.Character:FindFirstChild("RightUpperArm"),
-                    LeftLeg = player.Character:FindFirstChild("Left Leg") or player.Character:FindFirstChild("LeftUpperLeg"),
-                    RightLeg = player.Character:FindFirstChild("Right Leg") or player.Character:FindFirstChild("RightUpperLeg"),
-                }
-
-                local skeleton = espObjects[player].Skeleton
-                local function connect(i, partA, partB)
-                    if partA and partB then
-                        local a, visA = Camera:WorldToViewportPoint(partA.Position)
-                        local b, visB = Camera:WorldToViewportPoint(partB.Position)
-                        if visA and visB then
-                            skeleton[i].From = Vector2.new(a.X, a.Y)
-                            skeleton[i].To = Vector2.new(b.X, b.Y)
-                            skeleton[i].Color = colorSkeleton
-                            skeleton[i].Visible = true
-                        else
-                            skeleton[i].Visible = false
-                        end
+        -- Skeleton
+        if ESPSettings.SkeletonESP then
+            local parts = espObjects[player].Parts
+            local skeleton = espObjects[player].Skeleton
+            local function connect(i, partA, partB)
+                if partA and partB then
+                    local a, visA = Camera:WorldToViewportPoint(partA.Position)
+                    local b, visB = Camera:WorldToViewportPoint(partB.Position)
+                    if visA and visB then
+                        skeleton[i].From = Vector2.new(a.X, a.Y)
+                        skeleton[i].To = Vector2.new(b.X, b.Y)
+                        skeleton[i].Color = colorSkeleton
+                        skeleton[i].Visible = true
                     else
                         skeleton[i].Visible = false
                     end
+                else
+                    skeleton[i].Visible = false
                 end
-
-                connect(1, parts.Head, parts.UpperTorso)
-                connect(2, parts.UpperTorso, parts.HRP)
-                connect(3, parts.UpperTorso, parts.LeftArm)
-                connect(4, parts.UpperTorso, parts.RightArm)
-                connect(5, parts.HRP, parts.LeftLeg)
-                connect(6, parts.HRP, parts.RightLeg)
-            else
-                for _, l in pairs(espObjects[player].Skeleton) do l.Visible = false end
             end
-
-            -- Tracers
-            if ESPSettings.Tracers then
-                local tracer = espObjects[player].Tracer
-                local screenBottom = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
-                tracer.From = screenBottom
-                tracer.To = Vector2.new(pos.X, pos.Y)
-                tracer.Color = colorTracer
-                tracer.Visible = true
-            else
-                espObjects[player].Tracer.Visible = false
-            end
-
-            -- Name
-            if ESPSettings.ShowNames then
-                espObjects[player].Name.Position = Vector2.new(pos.X, pos.Y - 50)
-                espObjects[player].Name.Text = player.Name
-                espObjects[player].Name.Color = colorBox
-                espObjects[player].Name.Visible = true
-            else
-                espObjects[player].Name.Visible = false
-            end
-
-            -- Distance
-            if ESPSettings.ShowDistance then
-                local distance = math.floor((Camera.CFrame.Position - hrp.Position).Magnitude)
-                espObjects[player].Distance.Position = Vector2.new(pos.X, pos.Y - 35)
-                espObjects[player].Distance.Text = distance.." studs"
-                espObjects[player].Distance.Color = colorBox
-                espObjects[player].Distance.Visible = true
-            else
-                espObjects[player].Distance.Visible = false
-            end
-
+            connect(1, parts.Head, parts.UpperTorso)
+            connect(2, parts.UpperTorso, parts.HRP)
+            connect(3, parts.UpperTorso, parts.LeftArm)
+            connect(4, parts.UpperTorso, parts.RightArm)
+            connect(5, parts.HRP, parts.LeftLeg)
+            connect(6, parts.HRP, parts.RightLeg)
         else
-            espObjects[player].Box.Visible = false
-            espObjects[player].Tracer.Visible = false
             for _, l in pairs(espObjects[player].Skeleton) do l.Visible = false end
+        end
+
+        -- Tracer
+        if ESPSettings.Tracers then
+            local tracer = espObjects[player].Tracer
+            local screenBottom = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+            tracer.From = screenBottom
+            tracer.To = Vector2.new(pos.X, pos.Y)
+            tracer.Color = colorTracer
+            tracer.Visible = onScreen
+        else
+            espObjects[player].Tracer.Visible = false
+        end
+
+        -- Name
+        if ESPSettings.ShowNames then
+            espObjects[player].Name.Position = Vector2.new(pos.X, pos.Y - 50)
+            espObjects[player].Name.Text = player.Name
+            espObjects[player].Name.Color = colorBox
+            espObjects[player].Name.Visible = onScreen
+        else
             espObjects[player].Name.Visible = false
+        end
+
+        -- Distance
+        if ESPSettings.ShowDistance then
+            espObjects[player].Distance.Position = Vector2.new(pos.X, pos.Y - 35)
+            espObjects[player].Distance.Text = math.floor(distance).." studs"
+            espObjects[player].Distance.Color = colorBox
+            espObjects[player].Distance.Visible = onScreen
+        else
             espObjects[player].Distance.Visible = false
         end
     end
@@ -296,7 +328,6 @@ end)
 -----------------------------------------------------
 -- GUI: ESP Settings
 -----------------------------------------------------
-
 local espOptions = mainTab:Section("ESP Options")
 espOptions:Toggle("Enable ESP", function(v) ESPSettings.Enabled = v end)
 espOptions:Toggle("Box ESP", function(v) ESPSettings.BoxESP = v end)
@@ -307,19 +338,20 @@ espOptions:Toggle("Tracers", function(v) ESPSettings.Tracers = v end)
 espOptions:Toggle("Show Names", function(v) ESPSettings.ShowNames = v end)
 espOptions:Toggle("Show Distance", function(v) ESPSettings.ShowDistance = v end)
 
+-- Visibility part toggles
+local visSec = mainTab:Section("Visibility Part Toggles")
+visSec:Toggle("Check Head", function(v) ESPSettings.CheckHead = v end)
+visSec:Toggle("Check Torso", function(v) ESPSettings.CheckTorso = v end)
+visSec:Toggle("Check Arms", function(v) ESPSettings.CheckArms = v end)
+visSec:Toggle("Check Legs", function(v) ESPSettings.CheckLegs = v end)
+visSec:Toggle("Check HRP", function(v) ESPSettings.CheckHRP = v end)
+
+-- Color settings
 local colorSec = mainTab:Section("ESP Colors")
-colorSec:TextBox("Box ESP Color (R,G,B)", "255,255,255", function(input)
-    ESPSettings.BoxColor = parseRGB(input, ESPSettings.BoxColor)
-end)
-colorSec:TextBox("Skeleton ESP Color (R,G,B)", "255,255,255", function(input)
-    ESPSettings.SkeletonColor = parseRGB(input, ESPSettings.SkeletonColor)
-end)
-colorSec:TextBox("Tracers Color (R,G,B)", "255,255,255", function(input)
-    ESPSettings.TracerColor = parseRGB(input, ESPSettings.TracerColor)
-end)
-colorSec:TextBox("Visible Color (R,G,B)", "0,255,0", function(input)
-    ESPSettings.VisibleColor = parseRGB(input, ESPSettings.VisibleColor)
-end)
+colorSec:TextBox("Box ESP Color (R,G,B)", "255,255,255", function(input) ESPSettings.BoxColor = parseRGB(input, ESPSettings.BoxColor) end)
+colorSec:TextBox("Skeleton ESP Color (R,G,B)", "255,255,255", function(input) ESPSettings.SkeletonColor = parseRGB(input, ESPSettings.SkeletonColor) end)
+colorSec:TextBox("Tracers Color (R,G,B)", "255,255,255", function(input) ESPSettings.TracerColor = parseRGB(input, ESPSettings.TracerColor) end)
+colorSec:TextBox("Visible Color (R,G,B)", "0,255,0", function(input) ESPSettings.VisibleColor = parseRGB(input, ESPSettings.VisibleColor) end)
 
 -----------------------------------------------------
 -- Silent Aim System (Automation Tab)
@@ -479,7 +511,7 @@ AimbotSection:Toggle("Aim Assist", function(val)
 end)
 
 -- Team Check toggle
-AimbotSection:Toggle("Team Check (ON = enemies only)", function(val)
+AimbotSection:Toggle("Team Check", function(val)
     _G.TeamCheck = val
 end)
 
@@ -489,7 +521,8 @@ AimbotSection:Toggle("FOV Circle Enabled", function(val)
 end)
 
 -- Helpful label
-AimbotSection:Label("Smoothness (0.02-0.30, smaller = snappier). Prediction (0.00-0.20 seconds, target lead).")
+AimbotSection:Label("Smoothness (0.02-0.30, smaller = snappier).")
+AimbotSection:Label(" Prediction (0.00-0.20 seconds, target lead).")
 
 -- Smoothness TextBox
 AimbotSection:TextBox("Smoothness (e.g., 0.15)", tostring(_G.Smoothness), function(text)
@@ -934,16 +967,15 @@ jumpFlySection:Toggle("Enable Jump Fly (Press F to toggle)", function(value)
     end))
 end)
 
-
 -----------------------------------------------------
 -- Bhop System (Movement Tab)
 -----------------------------------------------------
+
 local humanoid = LocalPlayer.Character:WaitForChild("Humanoid")
 local rootPart = LocalPlayer.Character:WaitForChild("HumanoidRootPart")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
--- Settings
 local BhopSettings = {
     Enabled = false,
     BaseSpeed = 16,
@@ -958,19 +990,13 @@ local BhopSettings = {
 
 -- GUI
 local bhopSection = movementTab:Section("Bhop Settings")
-local currentSpeedLabel
 
+-- Enable Bhop toggle
 bhopSection:Toggle("Enable Bhop", function(state)
     BhopSettings.Enabled = state
-    if state then
-        BhopSettings.Momentum = humanoid.WalkSpeed -- start from current WalkSpeed
-    end
 end)
 
--- Label about visual numbers
-bhopSection:Label("If the number doesn't visually change, it still updated internally!")
-
--- MaxSpeed TextBox
+-- Max Speed TextBox
 bhopSection:TextBox("Max Bhop Speed", tostring(BhopSettings.MaxSpeed), function(input)
     local num = tonumber(input)
     if num then
@@ -978,7 +1004,7 @@ bhopSection:TextBox("Max Bhop Speed", tostring(BhopSettings.MaxSpeed), function(
     end
 end)
 
--- MidAirIncrement TextBox
+-- Mid-Air Increment TextBox
 bhopSection:TextBox("Mid-Air Increment", tostring(BhopSettings.MidAirIncrement), function(input)
     local num = tonumber(input)
     if num then
@@ -986,7 +1012,7 @@ bhopSection:TextBox("Mid-Air Increment", tostring(BhopSettings.MidAirIncrement),
     end
 end)
 
--- StrafeMultiplier TextBox
+-- Strafe Multiplier TextBox
 bhopSection:TextBox("Strafe Multiplier", tostring(BhopSettings.StrafeMultiplier), function(input)
     local num = tonumber(input)
     if num then
@@ -994,63 +1020,74 @@ bhopSection:TextBox("Strafe Multiplier", tostring(BhopSettings.StrafeMultiplier)
     end
 end)
 
+-- Enable Strafing Boost toggle
 bhopSection:Toggle("Enable Strafing Boost", function(state)
     BhopSettings.StrafeEnabled = state
 end)
 
-currentSpeedLabel = bhopSection:Label("Current Speed: " .. BhopSettings.Momentum)
+-- Current Speed Label
+local currentSpeedLabel = bhopSection:Label("Current Speed: " .. math.floor(BhopSettings.Momentum))
 
 -- Track mouse movement for strafing
-UIS.InputChanged:Connect(function(input)
+game:GetService("UserInputService").InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseMovement then
         BhopSettings.LastMouseDelta = input.Delta.X
     end
 end)
 
--- Bhop + Strafe Logic
-RunService.RenderStepped:Connect(function()
-    local onGround = humanoid.FloorMaterial ~= Enum.Material.Air
-    local moving = humanoid.MoveDirection.Magnitude > 0
-    local spaceDown = UIS:IsKeyDown(Enum.KeyCode.Space)
+-- Main Bhop logic safely
+local function setupBhop(character)
+    local humanoid = character:WaitForChild("Humanoid")
+    local rootPart = character:WaitForChild("HumanoidRootPart")
+    
+    game:GetService("RunService").RenderStepped:Connect(function()
+        if not humanoid then return end
 
-    if BhopSettings.Enabled then
-        -- Auto-jump
-        if spaceDown and onGround then
-            humanoid.Jump = true
-        end
+        local onGround = humanoid.FloorMaterial ~= Enum.Material.Air
+        local moving = humanoid.MoveDirection.Magnitude > 0
+        local spaceDown = game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.Space)
 
-        if not onGround and moving then
-            -- Gradual mid-air momentum build-up
-            BhopSettings.Momentum = math.clamp(
-                BhopSettings.Momentum + BhopSettings.MidAirIncrement,
-                BhopSettings.BaseSpeed,
-                BhopSettings.MaxSpeed
-            )
-
-            -- Strafe boost (tiny extra boost on top of MaxSpeed)
-            if BhopSettings.StrafeEnabled then
-                local strafeBoost = math.clamp(
-                    math.abs(BhopSettings.LastMouseDelta) * BhopSettings.StrafeMultiplier,
-                    0,
-                    BhopSettings.StrafeMaxBoost
-                )
-                BhopSettings.Momentum = math.clamp(
-                    BhopSettings.Momentum + strafeBoost,
-                    BhopSettings.BaseSpeed,
-                    BhopSettings.MaxSpeed + BhopSettings.StrafeMaxBoost
-                )
+        if BhopSettings.Enabled then
+            if spaceDown and onGround then
+                humanoid.Jump = true
             end
-        elseif onGround and not spaceDown then
-            -- Reset momentum when on ground and not jumping
-            BhopSettings.Momentum = BhopSettings.BaseSpeed
+
+            if not onGround and moving then
+                BhopSettings.Momentum = math.clamp(
+                    BhopSettings.Momentum + BhopSettings.MidAirIncrement,
+                    BhopSettings.BaseSpeed,
+                    BhopSettings.MaxSpeed
+                )
+
+                if BhopSettings.StrafeEnabled then
+                    local strafeBoost = math.clamp(
+                        math.abs(BhopSettings.LastMouseDelta) * BhopSettings.StrafeMultiplier,
+                        0,
+                        BhopSettings.StrafeMaxBoost
+                    )
+                    BhopSettings.Momentum = math.clamp(
+                        BhopSettings.Momentum + strafeBoost,
+                        BhopSettings.BaseSpeed,
+                        BhopSettings.MaxSpeed + BhopSettings.StrafeMaxBoost
+                    )
+                end
+            elseif onGround and not spaceDown and BhopSettings.Momentum > BhopSettings.BaseSpeed then
+                BhopSettings.Momentum = BhopSettings.BaseSpeed
+            end
+
+            humanoid.WalkSpeed = BhopSettings.Momentum
         end
 
-        humanoid.WalkSpeed = BhopSettings.Momentum
-    end
+        currentSpeedLabel.Text = "Current Speed: " .. math.floor(BhopSettings.Momentum)
+    end)
+end
 
-    -- Update GUI
-    currentSpeedLabel:Set("Current Speed: " .. math.floor(BhopSettings.Momentum))
-end)
+-- Safe initialization
+local player = game:GetService("Players").LocalPlayer
+if player.Character then
+    setupBhop(player.Character)
+end
+player.CharacterAdded:Connect(setupBhop)
 
 
 -----------------------------------------------------
@@ -1060,25 +1097,32 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
 
+-- Create the Speed Section
+local speedSection = movementTab:Section("Speed Settings")
+
+-- Settings
 local SpeedSettings = {
     Enabled = false,
     WalkSpeed = 16
 }
 
-local speedSection = movementTab:Section("Speed Hack")
-
+-- Enable Speed Hack toggle
 speedSection:Toggle("Enable Speed Hack", function(state)
     SpeedSettings.Enabled = state
-    if not state then
-        humanoid.WalkSpeed = 16
+    local char = player.Character
+    if char and char:FindFirstChild("Humanoid") then
+        local hum = char.Humanoid
+        if not state then
+            hum.WalkSpeed = 16 -- Reset to default
+        end
     end
 end)
 
+-- Info label
 speedSection:Label("Default walk speed is 16")
 
+-- Walk Speed TextBox
 speedSection:TextBox("Set Walk Speed", tostring(SpeedSettings.WalkSpeed), function(input)
     local num = tonumber(input)
     if num then
@@ -1086,16 +1130,25 @@ speedSection:TextBox("Set Walk Speed", tostring(SpeedSettings.WalkSpeed), functi
     end
 end)
 
-local currentSpeedLabel = speedSection:Label("Current Speed: " .. SpeedSettings.WalkSpeed)
+-- Current Speed Label
+local speedCurrentLabel = speedSection:Label("Current Speed: " .. SpeedSettings.WalkSpeed)
 
+-- Update loop
 RunService.RenderStepped:Connect(function()
-    if SpeedSettings.Enabled and humanoid then
-        humanoid.WalkSpeed = SpeedSettings.WalkSpeed
+    local char = player.Character
+    if char and char:FindFirstChild("Humanoid") then
+        local hum = char.Humanoid
+        if SpeedSettings.Enabled then
+            hum.WalkSpeed = SpeedSettings.WalkSpeed
+        end
+        speedCurrentLabel.Text = "Current Speed: " .. math.floor(hum.WalkSpeed) -- Use .Text instead of :Set
     end
-    currentSpeedLabel:Set("Current Speed: " .. math.floor(humanoid.WalkSpeed))
 end)
 
+-- Handle character respawn
 player.CharacterAdded:Connect(function(char)
-    character = char
-    humanoid = character:WaitForChild("Humanoid")
+    local hum = char:WaitForChild("Humanoid")
+    if not SpeedSettings.Enabled then
+        hum.WalkSpeed = 16
+    end
 end)
