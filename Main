@@ -757,7 +757,7 @@ local BhopSettings = {
     MaxSpeed = 80,
     StrafeEnabled = false,
     LastMouseDelta = 0,
-    MidAirIncrement = 0.2,   
+    MidAirIncrement = 0.2,
     StrafeMultiplier = 0.004,
     StrafeMaxBoost = 5
 }
@@ -768,9 +768,8 @@ local currentSpeedLabel
 
 bhopSection:Toggle("Enable Bhop", function(state)
     BhopSettings.Enabled = state
-    if not state then
-        BhopSettings.Momentum = BhopSettings.BaseSpeed
-        humanoid.WalkSpeed = BhopSettings.BaseSpeed
+    if state then
+        BhopSettings.Momentum = humanoid.WalkSpeed -- start from current WalkSpeed
     end
 end)
 
@@ -853,15 +852,12 @@ RunService.RenderStepped:Connect(function()
         end
 
         humanoid.WalkSpeed = BhopSettings.Momentum
-    else
-        -- Fully disabled
-        BhopSettings.Momentum = BhopSettings.BaseSpeed
-        humanoid.WalkSpeed = BhopSettings.BaseSpeed
     end
 
     -- Update GUI
     currentSpeedLabel:Set("Current Speed: " .. math.floor(BhopSettings.Momentum))
 end)
+
 
 -----------------------------------------------------
 -- Speed Hack (Movement Tab)
