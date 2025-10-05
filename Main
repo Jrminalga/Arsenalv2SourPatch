@@ -1,0 +1,940 @@
+-- Load UI Library
+local Luxtl = loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Luxware-UI-Library/main/Source.lua"))()
+local Luxt = Luxtl.CreateWindow("Sour Patch", 6105620301)
+
+-- Tabs
+local mainTab = Luxt:Tab("Visuals", 6087485864)
+local automationTab = Luxt:Tab("Automation")
+local movementTab = Luxt:Tab("Movement")
+local creditsTab = Luxt:Tab("Credits")
+local Examples = Luxt:Tab("Examples")
+
+-- Credits
+local cf = creditsTab:Section("Main Credits")
+cf:Credit("Jrminalga")
+local cf1 = creditsTab:Section("UI Credits")
+cf1:Credit("xHeptc: UI Library")
+local cf2 = creditsTab:Section("Helping Credits")
+cf2:Credit("Salad: Helping")
+
+-- Examples Tab
+local ff = Examples:Section("All Examples")
+ff:Label("Welcome to Wisteria GUI")
+ff:Button("TextButton Text", function() print("Clicked!") end)
+ff:Toggle("Toggle Me!", function(isToggled) print(isToggled) end)
+ff:KeyBind("Print('Hey') on bind", Enum.KeyCode.R, function() print('Hey') end)
+ff:TextBox("TextBox Info", "Epic PlaceHolder", function(getText) print(getText) end)
+ff:Slider("WalkSpeed", 16, 503, function(currentValue)
+    game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = currentValue
+end)
+ff:DropDown("Favorite Food?", {"Pizza", "Burger", "Sandwiches"}, function(food) print(food) end)
+
+-----------------------------------------------------
+-- ESP System (Visuals Tab)
+-----------------------------------------------------
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+local ESPSettings = {
+    Enabled = false,
+    BoxESP = true,
+    SkeletonESP = false,
+    Tracers = false,
+    UseVisible = false,
+    TeamCheck = false,
+    BoxColor = Color3.fromRGB(255, 255, 255),
+    SkeletonColor = Color3.fromRGB(255, 255, 255),
+    TracerColor = Color3.fromRGB(255, 255, 255),
+    VisibleColor = Color3.fromRGB(0, 255, 0),
+    BoxScale = 0.5,
+    SkeletonScale = 1.25
+}
+
+local espObjects = {}
+
+-- Utility function to parse RGB safely
+local function parseRGB(input, default)
+    local r, g, b = input:match("(%d+),(%d+),(%d+)")
+    if r and g and b then
+        r, g, b = tonumber(r), tonumber(g), tonumber(b)
+        r = math.clamp(r, 0, 255)
+        g = math.clamp(g, 0, 255)
+        b = math.clamp(b, 0, 255)
+        return Color3.fromRGB(r, g, b)
+    end
+    return default
+end
+
+-- ESP Utility Functions
+local function inView(position)
+    local camLook = Camera.CFrame.LookVector
+    local dir = (position - Camera.CFrame.Position).Unit
+    return camLook:Dot(dir) > 0
+end
+
+local function isVisible(targetPart)
+    local ray = Ray.new(Camera.CFrame.Position, (targetPart.Position - Camera.CFrame.Position).Unit * 5000)
+    local part = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character}, false, true)
+    return (not part or part:IsDescendantOf(targetPart.Parent))
+end
+
+local function createSkeleton()
+    local lines = {}
+    for i = 1, 6 do
+        local line = Drawing.new("Line")
+        line.Thickness = 2
+        line.Visible = false
+        table.insert(lines, line)
+    end
+    return lines
+end
+
+-- Create ESP objects
+local function createESP(player)
+    if espObjects[player] then return end
+    espObjects[player] = {
+        Box = Drawing.new("Square"),
+        Skeleton = createSkeleton(),
+        Tracer = Drawing.new("Line"),
+        Name = Drawing.new("Text"),
+        Distance = Drawing.new("Text")
+    }
+
+    -- Box
+    espObjects[player].Box.Thickness = 2
+    espObjects[player].Box.Filled = false
+    espObjects[player].Box.Visible = false
+
+    -- Tracer
+    espObjects[player].Tracer.Thickness = 1.5
+    espObjects[player].Tracer.Visible = false
+
+    -- Name
+    espObjects[player].Name.Center = true
+    espObjects[player].Name.Outline = true
+    espObjects[player].Name.Size = 16
+    espObjects[player].Name.Visible = false
+
+    -- Distance
+    espObjects[player].Distance.Center = true
+    espObjects[player].Distance.Outline = true
+    espObjects[player].Distance.Size = 14
+    espObjects[player].Distance.Visible = false
+end
+
+-- Cleanup ESP drawings
+local function removeESP(player)
+    if not espObjects[player] then return end
+    if espObjects[player].Box then espObjects[player].Box:Remove() end
+    if espObjects[player].Tracer then espObjects[player].Tracer:Remove() end
+    for _, l in pairs(espObjects[player].Skeleton) do l:Remove() end
+    if espObjects[player].Name then espObjects[player].Name:Remove() end
+    if espObjects[player].Distance then espObjects[player].Distance:Remove() end
+    espObjects[player] = nil
+end
+
+Players.PlayerRemoving:Connect(removeESP)
+
+-- Refresh ESP periodically
+local function refreshESP()
+    for plr, _ in pairs(espObjects) do
+        removeESP(plr)
+    end
+end
+
+spawn(function()
+    while wait(5) do
+        if ESPSettings.Enabled then
+            refreshESP()
+        end
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if not ESPSettings.Enabled then
+        for _, v in pairs(espObjects) do
+            v.Box.Visible = false
+            v.Tracer.Visible = false
+            for _, l in pairs(v.Skeleton) do l.Visible = false end
+            v.Name.Visible = false
+            v.Distance.Visible = false
+        end
+        return
+    end
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player == LocalPlayer or not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then continue end
+        createESP(player)
+        local hrp = player.Character.HumanoidRootPart
+        local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+
+        -- TEAM CHECK
+        if ESPSettings.TeamCheck and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+            espObjects[player].Box.Visible = false
+            espObjects[player].Tracer.Visible = false
+            for _, l in pairs(espObjects[player].Skeleton) do l.Visible = false end
+            espObjects[player].Name.Visible = false
+            espObjects[player].Distance.Visible = false
+            continue
+        end
+
+        if onScreen then
+            local colorBox = ESPSettings.BoxColor
+            local colorSkeleton = ESPSettings.SkeletonColor
+            local colorTracer = ESPSettings.TracerColor
+            if ESPSettings.UseVisible and isVisible(hrp) then
+                colorBox = ESPSettings.VisibleColor
+                colorSkeleton = ESPSettings.VisibleColor
+                colorTracer = ESPSettings.VisibleColor
+            end
+
+            -- Box ESP
+            if ESPSettings.BoxESP then
+                local box = espObjects[player].Box
+                local distance = (Camera.CFrame.Position - hrp.Position).Magnitude
+                local scale = ESPSettings.BoxScale / distance * 200
+                local width, height = 30 * scale, 60 * scale
+
+                if ESPSettings.TeamCheck and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+                    box.Visible = false
+                else
+                    box.Position = Vector2.new(pos.X - width / 2, pos.Y - height / 2)
+                    box.Size = Vector2.new(width, height)
+                    box.Color = colorBox
+                    box.Visible = true
+                end
+            else
+                espObjects[player].Box.Visible = false
+            end
+
+
+            -- Skeleton ESP
+            if ESPSettings.SkeletonESP then
+                local parts = {
+                    Head = player.Character:FindFirstChild("Head"),
+                    UpperTorso = player.Character:FindFirstChild("UpperTorso") or player.Character:FindFirstChild("Torso"),
+                    HRP = hrp,
+                    LeftArm = player.Character:FindFirstChild("Left Arm") or player.Character:FindFirstChild("LeftUpperArm"),
+                    RightArm = player.Character:FindFirstChild("Right Arm") or player.Character:FindFirstChild("RightUpperArm"),
+                    LeftLeg = player.Character:FindFirstChild("Left Leg") or player.Character:FindFirstChild("LeftUpperLeg"),
+                    RightLeg = player.Character:FindFirstChild("Right Leg") or player.Character:FindFirstChild("RightUpperLeg"),
+                }
+
+                local skeleton = espObjects[player].Skeleton
+                local function connect(i, partA, partB)
+                    if partA and partB then
+                        local a, visA = Camera:WorldToViewportPoint(partA.Position)
+                        local b, visB = Camera:WorldToViewportPoint(partB.Position)
+                        if visA and visB then
+                            skeleton[i].From = Vector2.new(a.X, a.Y)
+                            skeleton[i].To = Vector2.new(b.X, b.Y)
+                            skeleton[i].Color = colorSkeleton
+                            skeleton[i].Visible = true
+                        else
+                            skeleton[i].Visible = false
+                        end
+                    else
+                        skeleton[i].Visible = false
+                    end
+                end
+
+                connect(1, parts.Head, parts.UpperTorso)
+                connect(2, parts.UpperTorso, parts.HRP)
+                connect(3, parts.UpperTorso, parts.LeftArm)
+                connect(4, parts.UpperTorso, parts.RightArm)
+                connect(5, parts.HRP, parts.LeftLeg)
+                connect(6, parts.HRP, parts.RightLeg)
+            else
+                for _, l in pairs(espObjects[player].Skeleton) do l.Visible = false end
+            end
+
+            -- Tracers
+            if ESPSettings.Tracers then
+                local tracer = espObjects[player].Tracer
+                local screenBottom = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                tracer.From = screenBottom
+                tracer.To = Vector2.new(pos.X, pos.Y)
+                tracer.Color = colorTracer
+                tracer.Visible = true
+            else
+                espObjects[player].Tracer.Visible = false
+            end
+
+            -- Name
+            if ESPSettings.ShowNames then
+                espObjects[player].Name.Position = Vector2.new(pos.X, pos.Y - 50)
+                espObjects[player].Name.Text = player.Name
+                espObjects[player].Name.Color = colorBox
+                espObjects[player].Name.Visible = true
+            else
+                espObjects[player].Name.Visible = false
+            end
+
+            -- Distance
+            if ESPSettings.ShowDistance then
+                local distance = math.floor((Camera.CFrame.Position - hrp.Position).Magnitude)
+                espObjects[player].Distance.Position = Vector2.new(pos.X, pos.Y - 35)
+                espObjects[player].Distance.Text = distance.." studs"
+                espObjects[player].Distance.Color = colorBox
+                espObjects[player].Distance.Visible = true
+            else
+                espObjects[player].Distance.Visible = false
+            end
+
+        else
+            espObjects[player].Box.Visible = false
+            espObjects[player].Tracer.Visible = false
+            for _, l in pairs(espObjects[player].Skeleton) do l.Visible = false end
+            espObjects[player].Name.Visible = false
+            espObjects[player].Distance.Visible = false
+        end
+    end
+end)
+
+-----------------------------------------------------
+-- GUI: ESP Settings
+-----------------------------------------------------
+
+local espOptions = mainTab:Section("ESP Options")
+espOptions:Toggle("Enable ESP", function(v) ESPSettings.Enabled = v end)
+espOptions:Toggle("Box ESP", function(v) ESPSettings.BoxESP = v end)
+espOptions:Toggle("Skeleton ESP", function(v) ESPSettings.SkeletonESP = v end)
+espOptions:Toggle("Is Visible", function(v) ESPSettings.UseVisible = v end)
+espOptions:Toggle("Team Check", function(v) ESPSettings.TeamCheck = v end)
+espOptions:Toggle("Tracers", function(v) ESPSettings.Tracers = v end)
+espOptions:Toggle("Show Names", function(v) ESPSettings.ShowNames = v end)
+espOptions:Toggle("Show Distance", function(v) ESPSettings.ShowDistance = v end)
+
+local colorSec = mainTab:Section("ESP Colors")
+colorSec:TextBox("Box ESP Color (R,G,B)", "255,255,255", function(input)
+    ESPSettings.BoxColor = parseRGB(input, ESPSettings.BoxColor)
+end)
+colorSec:TextBox("Skeleton ESP Color (R,G,B)", "255,255,255", function(input)
+    ESPSettings.SkeletonColor = parseRGB(input, ESPSettings.SkeletonColor)
+end)
+colorSec:TextBox("Tracers Color (R,G,B)", "255,255,255", function(input)
+    ESPSettings.TracerColor = parseRGB(input, ESPSettings.TracerColor)
+end)
+colorSec:TextBox("Visible Color (R,G,B)", "0,255,0", function(input)
+    ESPSettings.VisibleColor = parseRGB(input, ESPSettings.VisibleColor)
+end)
+
+-----------------------------------------------------
+-- Silent Aim System (Automation Tab)
+-----------------------------------------------------
+local silentAimSection = automationTab:Section("Silent Aim Settings")
+local silentAimSettings = {
+    Enabled = false,
+    ShowFOV = true,
+    FOVSize = 60,
+    FOVColor = Color3.fromRGB(255, 255, 255),
+    FOVTransparency = 0.5,
+    FOVFilled = false,
+    FOVThickness = 1,
+    FOVEnemyInside = false,
+    FOVEnemyInsideColor = Color3.fromRGB(255, 0, 0),
+    TeamCheck = false
+}
+
+local silentAimConnections = {}
+local fovCircle = nil
+
+local function createFOV()
+    if not Drawing or not Drawing.new then return end
+    fovCircle = Drawing.new("Circle")
+    fovCircle.Visible = silentAimSettings.Enabled and silentAimSettings.ShowFOV
+    fovCircle.Color = silentAimSettings.FOVColor
+    fovCircle.Transparency = silentAimSettings.FOVTransparency
+    fovCircle.Filled = silentAimSettings.FOVFilled
+    fovCircle.Thickness = silentAimSettings.FOVThickness
+    fovCircle.Radius = silentAimSettings.FOVSize
+    fovCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+end
+
+local function updateFOV()
+    if not fovCircle then return end
+    fovCircle.Visible = silentAimSettings.Enabled and silentAimSettings.ShowFOV
+    fovCircle.Color = silentAimSettings.FOVColor
+    fovCircle.Transparency = silentAimSettings.FOVTransparency
+    fovCircle.Filled = silentAimSettings.FOVFilled
+    fovCircle.Thickness = silentAimSettings.FOVThickness
+    fovCircle.Radius = silentAimSettings.FOVSize
+end
+
+local function isInFOV(part)
+    local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+    if not onScreen then return false end
+    local mousePos = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    return (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude <= fovCircle.Radius
+end
+
+local function modifyParts()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            for _, partName in ipairs({"RightUpperLeg","LeftUpperLeg","HeadHB","HumanoidRootPart"}) do
+                local part = player.Character:FindFirstChild(partName)
+                if part then
+                    part.Transparency = 10
+                    part.CanCollide = false
+                    part.Size = Vector3.new(13, 13, 13)
+                end
+            end
+        end
+    end
+end
+
+silentAimSection:Toggle("Enable Silent Aim", function(value)
+    silentAimSettings.Enabled = value
+    for _, con in pairs(silentAimConnections) do con:Disconnect() end
+    silentAimConnections = {}
+
+    if value then
+        if not fovCircle then createFOV() else updateFOV() end
+        modifyParts()
+
+        table.insert(silentAimConnections, Players.PlayerAdded:Connect(function(player)
+            if not silentAimSettings.Enabled then return end
+            table.insert(silentAimConnections, player.CharacterAdded:Connect(function(char)
+                if not silentAimSettings.Enabled then return end
+                wait(1)
+                modifyParts()
+            end))
+        end))
+
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                table.insert(silentAimConnections, player.CharacterAdded:Connect(function(char)
+                    if not silentAimSettings.Enabled then return end
+                    wait(1)
+                    modifyParts()
+                end))
+            end
+        end
+
+        table.insert(silentAimConnections, game:GetService("RunService").Heartbeat:Connect(function()
+            if silentAimSettings.Enabled then modifyParts() end
+        end))
+    elseif fovCircle then
+        fovCircle.Visible = false
+    end
+end)
+
+silentAimSection:Toggle("Show FOV Circle", function(value) silentAimSettings.ShowFOV = value updateFOV() end)
+silentAimSection:Slider("FOV Size", 5, 200, function(value) silentAimSettings.FOVSize = value updateFOV() end)
+silentAimSection:Slider("FOV Transparency", 0, 1, function(value) silentAimSettings.FOVTransparency = math.clamp(math.floor(value*10)/10, 0, 1) updateFOV() end)
+silentAimSection:Toggle("FOV Filled", function(value) silentAimSettings.FOVFilled = value updateFOV() end)
+silentAimSection:Slider("FOV Thickness", 1, 5, function(value) silentAimSettings.FOVThickness = value updateFOV() end)
+silentAimSection:TextBox("FOV Color (R,G,B)", "255,255,255", function(input) silentAimSettings.FOVColor = parseRGB(input, silentAimSettings.FOVColor) updateFOV() end)
+silentAimSection:Toggle("Team Check", function(value) silentAimSettings.TeamCheck = value end)
+silentAimSection:Toggle("Change Color When Enemy In FOV", function(value) silentAimSettings.FOVEnemyInside = value end)
+silentAimSection:TextBox("Enemy In FOV Color (R,G,B)", "255,0,0", function(input) silentAimSettings.FOVEnemyInsideColor = parseRGB(input, silentAimSettings.FOVEnemyInsideColor) end)
+
+game:GetService("RunService").RenderStepped:Connect(function()
+    if not silentAimSettings.Enabled or not fovCircle then return end
+    local colorToUse = silentAimSettings.FOVColor
+    if silentAimSettings.FOVEnemyInside then
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                if silentAimSettings.TeamCheck and LocalPlayer.Team == player.Team then continue end
+                if isInFOV(player.Character.HumanoidRootPart) and isVisible(player.Character.HumanoidRootPart) then
+                    colorToUse = silentAimSettings.FOVEnemyInsideColor
+                    break
+                end
+            end
+        end
+    end
+    fovCircle.Color = colorToUse
+end)
+
+-----------------------------------------------------
+-- Teleport (Automation Tab)
+-----------------------------------------------------
+
+local tpSection = automationTab:Section("Teleport Cheats")
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local tpEnabled = false -- Master toggle
+local autoTPEnabled = false
+local teamCheckEnabled = false
+local tpKey = Enum.KeyCode.T
+local tpSpeed = 1 -- Auto TP speed in seconds
+local lastAutoTP = 0
+
+-- Helper function to get random target
+local function getRandomTarget()
+    local targets = {}
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            if teamCheckEnabled then
+                if LocalPlayer.Team ~= player.Team then
+                    table.insert(targets, player)
+                end
+            else
+                table.insert(targets, player)
+            end
+        end
+    end
+    if #targets > 0 then
+        return targets[math.random(1, #targets)]
+    else
+        return nil
+    end
+end
+
+-- Function to teleport to a target
+local function teleportToPlayer(player)
+    if not tpEnabled then return end -- Master toggle check
+    if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = player.Character.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+    end
+end
+
+
+--TP Toggle
+tpSection:Toggle("Enable Teleport", function(isToggled)
+    tpEnabled = isToggled
+end)
+
+
+-- Manual TP 
+tpSection:KeyBind("Teleport to Random Player", tpKey, function()
+    if not tpEnabled then return end -- Only works if master toggle is ON
+    local target = getRandomTarget()
+    if target then
+        teleportToPlayer(target)
+    end
+end)
+
+
+-- Team Check Toggle
+tpSection:Toggle("Only Teleport to Enemies", function(isToggled)
+    teamCheckEnabled = isToggled
+end)
+
+
+-- Auto TP Toggle
+tpSection:Toggle("Auto TP", function(isToggled)
+    autoTPEnabled = isToggled
+end)
+
+
+-- Auto TP Speed
+tpSection:TextBox("Auto TP Speed (seconds)", "1", function(text)
+    local speed = tonumber(text)
+    if speed and speed > 0 then
+        tpSpeed = speed
+    else
+        tpSpeed = 1
+    end
+end)
+
+
+-- RunService loop for Auto TP
+RunService.RenderStepped:Connect(function()
+    if tpEnabled and autoTPEnabled then -- Auto TP only works if master toggle is ON
+        if tick() - lastAutoTP >= tpSpeed then
+            local target = getRandomTarget()
+            if target then
+                teleportToPlayer(target)
+            end
+            lastAutoTP = tick()
+        end
+    end
+end)
+
+-----------------------------------------------------
+-- Fly System (Movement Tab)
+-----------------------------------------------------
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local flySection = movementTab:Section("Fly Settings")
+
+-- Fly State
+local flyEnabled = false
+local flyToggleAllowed = false
+local flySpeed = 50
+local flyKey = Enum.KeyCode.F -- default bind
+local flyBodyVelocity = nil
+local flyBodyGyro = nil
+
+local function setFly(state)
+    if flyBodyVelocity then pcall(function() flyBodyVelocity:Destroy() end) flyBodyVelocity = nil end
+    if flyBodyGyro then pcall(function() flyBodyGyro:Destroy() end) flyBodyGyro = nil end
+
+    flyEnabled = state
+
+    if not state then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    flyBodyVelocity = Instance.new("BodyVelocity")
+    flyBodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    flyBodyVelocity.Velocity = Vector3.new(0,0,0)
+    flyBodyVelocity.Parent = hrp
+
+    flyBodyGyro = Instance.new("BodyGyro")
+    flyBodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+    flyBodyGyro.CFrame = hrp.CFrame
+    flyBodyGyro.Parent = hrp
+end
+
+-- GUI Controls
+flySection:Toggle("Enable Fly (GUI)", function(value)
+    flyToggleAllowed = value
+    if not value then
+        setFly(false)
+    end
+end)
+
+flySection:Slider("Fly Speed", 10, 200, function(val)
+    flySpeed = val
+end)
+
+flySection:KeyBind("Fly Toggle Key", flyKey, function()
+    if flyToggleAllowed then
+        setFly(not flyEnabled)
+    end
+end)
+
+-- Fly Movement Handler
+RunService.RenderStepped:Connect(function()
+    if not flyEnabled or not flyBodyVelocity or not flyBodyGyro then return end
+
+    local char = LocalPlayer.Character
+    if not char then setFly(false) return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then setFly(false) return end
+
+    -- Build movement vector
+    local mv = Vector3.new(0,0,0)
+    if UserInputService:IsKeyDown(Enum.KeyCode.W) then mv = mv + Vector3.new(0,0,-1) end
+    if UserInputService:IsKeyDown(Enum.KeyCode.S) then mv = mv + Vector3.new(0,0,1) end
+    if UserInputService:IsKeyDown(Enum.KeyCode.A) then mv = mv + Vector3.new(-1,0,0) end
+    if UserInputService:IsKeyDown(Enum.KeyCode.D) then mv = mv + Vector3.new(1,0,0) end
+
+    -- Vertical movement (world-relative, prevents drift)
+    local vertical = 0
+    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then vertical = vertical + 1 end
+    if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) then
+        vertical = vertical - 1
+    end
+
+    local vel = Vector3.new(0,0,0)
+    if mv.Magnitude > 0 then
+        local worldDir = Camera.CFrame:VectorToWorldSpace(mv)
+        vel = vel + worldDir.Unit * flySpeed
+    end
+    if vertical ~= 0 then
+        vel = vel + Vector3.new(0, vertical, 0) * flySpeed
+    end
+
+    flyBodyVelocity.Velocity = vel
+    flyBodyGyro.CFrame = CFrame.new(hrp.Position, hrp.Position + Camera.CFrame.LookVector)
+end)
+
+-----------------------------------------------------
+-- Jump Fly (Movement Tab)
+-----------------------------------------------------
+local jumpFlySection = movementTab:Section("Jump Fly Settings")
+
+local jumpFlyEnabled = false
+local jumpFlyPower = 50 -- vertical boost
+local jumpFlyGravity = 150
+local lastJumpTime = 0
+local jumpCooldown = 0.2
+local jumpFlyConnections = {}
+
+-- Toggle Jump Fly
+jumpFlySection:Toggle("Enable Jump Fly (Press F to toggle)", function(value)
+    jumpFlyEnabled = value
+
+    -- Cleanup old connections
+    for _, con in pairs(jumpFlyConnections) do con:Disconnect() end
+    jumpFlyConnections = {}
+
+    if not value then
+        if LocalPlayer.Character then
+            local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart") or LocalPlayer.Character:FindFirstChild("Torso")
+            if root and root:FindFirstChild("JumpFlyGravity") then
+                root.JumpFlyGravity:Destroy()
+            end
+        end
+        return
+    end
+
+    -- Setup
+    local function setupJumpFly()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local humanoid = char:FindFirstChild("Humanoid")
+        local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+        if not humanoid or not root then return end
+
+        -- BodyForce to control gravity
+        local bf = Instance.new("BodyForce")
+        bf.Name = "JumpFlyGravity"
+        bf.Force = Vector3.new(0, -jumpFlyGravity * root:GetMass(), 0)
+        bf.Parent = root
+
+        local UIS = game:GetService("UserInputService")
+        local RunService = game:GetService("RunService")
+
+        -- Toggle with F key
+        table.insert(jumpFlyConnections, UIS.InputBegan:Connect(function(input, gameProcessed)
+            if not gameProcessed and input.KeyCode == Enum.KeyCode.F then
+                jumpFlyEnabled = not jumpFlyEnabled
+                Luxt:Notify({
+                    Title = "Jump Fly",
+                    Content = jumpFlyEnabled and "Enabled" or "Disabled",
+                    Duration = 1
+                })
+            end
+        end))
+
+        -- Jump boost
+        table.insert(jumpFlyConnections, UIS.JumpRequest:Connect(function()
+            if jumpFlyEnabled and (tick() - lastJumpTime) > jumpCooldown then
+                root.Velocity = Vector3.new(root.Velocity.X, jumpFlyPower, root.Velocity.Z)
+                lastJumpTime = tick()
+            end
+        end))
+
+        -- Horizontal movement mid-air
+        table.insert(jumpFlyConnections, RunService.Heartbeat:Connect(function()
+            if jumpFlyEnabled then
+                if root:FindFirstChild("JumpFlyGravity") then
+                    root.JumpFlyGravity.Force = Vector3.new(0, -jumpFlyGravity * root:GetMass(), 0)
+                end
+
+                local cam = workspace.CurrentCamera
+                local dir = Vector3.new(0,0,0)
+                if UIS:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
+                if UIS:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector end
+                if UIS:IsKeyDown(Enum.KeyCode.A) then dir = dir - cam.CFrame.RightVector end
+                if UIS:IsKeyDown(Enum.KeyCode.D) then dir = dir + cam.CFrame.RightVector end
+                dir = Vector3.new(dir.X, 0, dir.Z)
+                if dir.Magnitude > 0 then
+                    root.Velocity = Vector3.new(dir.Unit.X * 50, root.Velocity.Y, dir.Unit.Z * 50)
+                end
+            end
+        end))
+    end
+
+    if LocalPlayer.Character then
+        setupJumpFly()
+    end
+
+    table.insert(jumpFlyConnections, LocalPlayer.CharacterAdded:Connect(function()
+        if jumpFlyEnabled then
+            wait(0.5)
+            setupJumpFly()
+        end
+    end))
+end)
+
+
+-----------------------------------------------------
+-- Bhop System (Movement Tab)
+-----------------------------------------------------
+local humanoid = LocalPlayer.Character:WaitForChild("Humanoid")
+local rootPart = LocalPlayer.Character:WaitForChild("HumanoidRootPart")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+-- Settings
+local BhopSettings = {
+    Enabled = false,
+    BaseSpeed = 16,
+    Momentum = 16,
+    MaxSpeed = 80,
+    StrafeEnabled = false,
+    LastMouseDelta = 0,
+    MidAirIncrement = 0.2,   
+    StrafeMultiplier = 0.004,
+    StrafeMaxBoost = 5
+}
+
+-- GUI
+local bhopSection = movementTab:Section("Bhop Settings")
+local currentSpeedLabel
+
+bhopSection:Toggle("Enable Bhop", function(state)
+    BhopSettings.Enabled = state
+    if not state then
+        BhopSettings.Momentum = BhopSettings.BaseSpeed
+        humanoid.WalkSpeed = BhopSettings.BaseSpeed
+    end
+end)
+
+-- Label about visual numbers
+bhopSection:Label("If the number doesn't visually change, it still updated internally!")
+
+-- MaxSpeed TextBox
+bhopSection:TextBox("Max Bhop Speed", tostring(BhopSettings.MaxSpeed), function(input)
+    local num = tonumber(input)
+    if num then
+        BhopSettings.MaxSpeed = math.clamp(num, BhopSettings.BaseSpeed, 500)
+    end
+end)
+
+-- MidAirIncrement TextBox
+bhopSection:TextBox("Mid-Air Increment", tostring(BhopSettings.MidAirIncrement), function(input)
+    local num = tonumber(input)
+    if num then
+        BhopSettings.MidAirIncrement = num
+    end
+end)
+
+-- StrafeMultiplier TextBox
+bhopSection:TextBox("Strafe Multiplier", tostring(BhopSettings.StrafeMultiplier), function(input)
+    local num = tonumber(input)
+    if num then
+        BhopSettings.StrafeMultiplier = num
+    end
+end)
+
+bhopSection:Toggle("Enable Strafing Boost", function(state)
+    BhopSettings.StrafeEnabled = state
+end)
+
+currentSpeedLabel = bhopSection:Label("Current Speed: " .. BhopSettings.Momentum)
+
+-- Track mouse movement for strafing
+UIS.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        BhopSettings.LastMouseDelta = input.Delta.X
+    end
+end)
+
+-- Bhop + Strafe Logic
+RunService.RenderStepped:Connect(function()
+    local onGround = humanoid.FloorMaterial ~= Enum.Material.Air
+    local moving = humanoid.MoveDirection.Magnitude > 0
+    local spaceDown = UIS:IsKeyDown(Enum.KeyCode.Space)
+
+    if BhopSettings.Enabled then
+        -- Auto-jump
+        if spaceDown and onGround then
+            humanoid.Jump = true
+        end
+
+        if not onGround and moving then
+            -- Gradual mid-air momentum build-up
+            BhopSettings.Momentum = math.clamp(
+                BhopSettings.Momentum + BhopSettings.MidAirIncrement,
+                BhopSettings.BaseSpeed,
+                BhopSettings.MaxSpeed
+            )
+
+            -- Strafe boost (tiny extra boost on top of MaxSpeed)
+            if BhopSettings.StrafeEnabled then
+                local strafeBoost = math.clamp(
+                    math.abs(BhopSettings.LastMouseDelta) * BhopSettings.StrafeMultiplier,
+                    0,
+                    BhopSettings.StrafeMaxBoost
+                )
+                BhopSettings.Momentum = math.clamp(
+                    BhopSettings.Momentum + strafeBoost,
+                    BhopSettings.BaseSpeed,
+                    BhopSettings.MaxSpeed + BhopSettings.StrafeMaxBoost
+                )
+            end
+        elseif onGround and not spaceDown then
+            -- Reset momentum when on ground and not jumping
+            BhopSettings.Momentum = BhopSettings.BaseSpeed
+        end
+
+        humanoid.WalkSpeed = BhopSettings.Momentum
+    else
+        -- Fully disabled
+        BhopSettings.Momentum = BhopSettings.BaseSpeed
+        humanoid.WalkSpeed = BhopSettings.BaseSpeed
+    end
+
+    -- Update GUI
+    currentSpeedLabel:Set("Current Speed: " .. math.floor(BhopSettings.Momentum))
+end)
+
+-----------------------------------------------------
+-- Speed Hack (Movement Tab)
+-----------------------------------------------------
+local speedSection = movementTab:Section("Speed Hack Settings")
+
+-- Label about visual numbers
+speedSection:Label("If value doesn't visually update, it updated internally", "Small")
+
+-- Speed Hack state
+local speedEnabled = false
+local speedValue = 50 -- default value
+local speedBodyVelocity = nil
+
+-- Toggle to enable/disable speed hack
+speedSection:Toggle("Enable Speed Hack", function(state)
+    speedEnabled = state
+
+    if not state and speedBodyVelocity then
+        pcall(function() speedBodyVelocity:Destroy() end)
+        speedBodyVelocity = nil
+    end
+end)
+
+-- TextBox to input speed
+speedSection:TextBox("Set Speed Hack Value", tostring(speedValue), function(val)
+    local num = tonumber(val)
+    if num then
+        speedValue = num
+    end
+end)
+
+-- Ground movement handler
+RunService.RenderStepped:Connect(function()
+    if not speedEnabled then return end
+
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char:FindFirstChild("Humanoid")
+    if not hrp or not humanoid then return end
+
+    -- Only apply if on ground
+    local onGround = humanoid.FloorMaterial ~= Enum.Material.Air
+    if not onGround then
+        if speedBodyVelocity then
+            pcall(function() speedBodyVelocity:Destroy() end)
+            speedBodyVelocity = nil
+        end
+        return
+    end
+
+    -- Create BodyVelocity if not exists
+    if not speedBodyVelocity then
+        speedBodyVelocity = Instance.new("BodyVelocity")
+        speedBodyVelocity.MaxForce = Vector3.new(1e5, 0, 1e5)
+        speedBodyVelocity.Velocity = Vector3.new(0,0,0)
+        speedBodyVelocity.P = 1e4
+        speedBodyVelocity.Parent = hrp
+    end
+
+    -- Calculate movement vector from W/A/S/D
+    local mv = Vector3.new(0,0,0)
+    if UserInputService:IsKeyDown(Enum.KeyCode.W) then mv = mv + Vector3.new(0,0,-1) end
+    if UserInputService:IsKeyDown(Enum.KeyCode.S) then mv = mv + Vector3.new(0,0,1) end
+    if UserInputService:IsKeyDown(Enum.KeyCode.A) then mv = mv + Vector3.new(-1,0,0) end
+    if UserInputService:IsKeyDown(Enum.KeyCode.D) then mv = mv + Vector3.new(1,0,0) end
+
+    -- Apply world-relative velocity, scaled by user input
+    if mv.Magnitude > 0 then
+        local worldDir = Camera.CFrame:VectorToWorldSpace(mv)
+        speedBodyVelocity.Velocity = Vector3.new(worldDir.X, 0, worldDir.Z).Unit * speedValue
+    else
+        speedBodyVelocity.Velocity = Vector3.new(0,0,0)
+    end
+end)
