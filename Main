@@ -449,6 +449,200 @@ game:GetService("RunService").RenderStepped:Connect(function()
 end)
 
 -----------------------------------------------------
+-- Aimbot Section (Automation Tab)
+-----------------------------------------------------
+local AimbotSection = automationTab:Section("Aimbot")
+
+-- Services & variables
+local UIS = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local camera = workspace.CurrentCamera
+local localPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+
+local aimTween = nil
+local lastTarget = nil
+local currentKeybind = Enum.UserInputType.MouseButton2
+_G.AimAssistEnabled = false
+_G.aim = false
+_G.Smoothness = 0.15
+_G.Prediction = 0.08
+_G.TeamCheck = false
+_G.FOVEnabled = false -- FOV off by default
+local FOVCircleRadius = 150
+
+-----------------------------------------------------
+-- UI Elements
+-----------------------------------------------------
+AimbotSection:Toggle("Aim Assist", function(val)
+    _G.AimAssistEnabled = val
+end)
+
+-- Team Check toggle
+AimbotSection:Toggle("Team Check (ON = enemies only)", function(val)
+    _G.TeamCheck = val
+end)
+
+-- FOV toggle
+AimbotSection:Toggle("FOV Circle Enabled", function(val)
+    _G.FOVEnabled = val
+end)
+
+-- Helpful label
+AimbotSection:Label("Smoothness (0.02-0.30, smaller = snappier). Prediction (0.00-0.20 seconds, target lead).")
+
+-- Smoothness TextBox
+AimbotSection:TextBox("Smoothness (e.g., 0.15)", tostring(_G.Smoothness), function(text)
+    local num = tonumber(text)
+    if num and num > 0 then
+        _G.Smoothness = math.clamp(num, 0.01, 1)
+    else
+        print("Invalid Smoothness input. Keeping previous value:", _G.Smoothness)
+    end
+end)
+
+-- Prediction TextBox
+AimbotSection:TextBox("Prediction (seconds, e.g., 0.08)", tostring(_G.Prediction), function(text)
+    local num = tonumber(text)
+    if num and num >= 0 then
+        _G.Prediction = math.clamp(num, 0, 1)
+    else
+        print("Invalid Prediction input. Keeping previous value:", _G.Prediction)
+    end
+end)
+
+-- FOV radius TextBox (user can change FOV size)
+AimbotSection:TextBox("FOV Radius (pixels, e.g., 150)", tostring(FOVCircleRadius), function(text)
+    local num = tonumber(text)
+    if num and num > 0 then
+        FOVCircleRadius = num
+        if FOVCircle then
+            FOVCircle.Radius = FOVCircleRadius
+        end
+    else
+        print("Invalid FOV radius. Keeping previous value:", FOVCircleRadius)
+    end
+end)
+
+-- Keybind
+AimbotSection:KeyBind("Aim Keybind", Enum.UserInputType.MouseButton2, function(key)
+    currentKeybind = key
+end)
+
+-----------------------------------------------------
+-- FOV Circle
+-----------------------------------------------------
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 2
+FOVCircle.Filled = false
+FOVCircle.Radius = FOVCircleRadius
+FOVCircle.Visible = _G.FOVEnabled
+local FOVCenter = Vector2.new(camera.ViewportSize.X/2, camera.ViewportSize.Y/2)
+
+RunService.RenderStepped:Connect(function()
+    FOVCenter = Vector2.new(camera.ViewportSize.X/2, camera.ViewportSize.Y/2)
+    FOVCircle.Position = FOVCenter
+    FOVCircle.Radius = FOVCircleRadius
+    FOVCircle.Visible = _G.FOVEnabled
+
+    -- Color dynamically changes based on TeamCheck
+    if _G.FOVEnabled then
+        FOVCircle.Color = _G.TeamCheck and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+    end
+end)
+
+local function isInFOV(worldPos)
+    if not _G.FOVEnabled then return true end -- all targets are valid if FOV off
+    local screenPos, onScreen = camera:WorldToViewportPoint(worldPos)
+    if not onScreen then return false end
+    local dist = (Vector2.new(screenPos.X, screenPos.Y) - FOVCenter).Magnitude
+    return dist <= FOVCircleRadius
+end
+
+-----------------------------------------------------
+-- Smooth aiming using lerp
+-----------------------------------------------------
+local function smoothAim(targetPosition)
+    if not camera or not camera.CFrame then return end
+    local s = math.max(0.01, (_G.Smoothness or 0.15))
+    local alpha = math.clamp(1 / (s * 30), 0.01, 1)
+    camera.CFrame = camera.CFrame:Lerp(CFrame.new(camera.CFrame.Position, targetPosition), alpha)
+end
+
+-----------------------------------------------------
+-- Targeting logic
+-----------------------------------------------------
+local function getClosest()
+    if not localPlayer.Character or not localPlayer.Character:FindFirstChild("HumanoidRootPart") then return nil end
+    local closestDistance = math.huge
+    local closestPlayer = nil
+    local localRoot = localPlayer.Character.HumanoidRootPart
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= localPlayer then
+            local character = player.Character
+            if character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("Head") then
+                -- Team check
+                if not (_G.TeamCheck and player.Team == localPlayer.Team) then
+                    local predictedPosition = character.Head.Position + (character.HumanoidRootPart.Velocity * (_G.Prediction or 0.08))
+                    -- FOV check
+                    if isInFOV(predictedPosition) then
+                        local distance = (localRoot.Position - predictedPosition).Magnitude
+                        if distance < closestDistance then
+                            closestDistance = distance
+                            closestPlayer = player
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return closestPlayer
+end
+
+local function aimLoop()
+    while _G.aim and _G.AimAssistEnabled and task.wait() do
+        local closest = getClosest()
+        if closest and closest.Character and closest.Character:FindFirstChild("Head") then
+            local predictedPosition = closest.Character.Head.Position + (closest.Character.HumanoidRootPart.Velocity * (_G.Prediction or 0.08))
+            smoothAim(predictedPosition)
+        end
+    end
+end
+
+-----------------------------------------------------
+-- Input handlers
+-----------------------------------------------------
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    local isPressed = false
+    if typeof(currentKeybind) == "EnumItem" and currentKeybind.EnumType == Enum.UserInputType then
+        isPressed = (input.UserInputType == currentKeybind)
+    elseif typeof(currentKeybind) == "EnumItem" and currentKeybind.EnumType == Enum.KeyCode then
+        isPressed = (input.KeyCode == currentKeybind)
+    end
+    if isPressed and _G.AimAssistEnabled then
+        _G.aim = true
+        task.spawn(aimLoop)
+    end
+end)
+
+UIS.InputEnded:Connect(function(input, gp)
+    if gp then return end
+    local isReleased = false
+    if typeof(currentKeybind) == "EnumItem" and currentKeybind.EnumType == Enum.UserInputType then
+        isReleased = (input.UserInputType == currentKeybind)
+    elseif typeof(currentKeybind) == "EnumItem" and currentKeybind.EnumType == Enum.KeyCode then
+        isReleased = (input.KeyCode == currentKeybind)
+    end
+    if isReleased then
+        _G.aim = false
+    end
+end)
+
+
+-----------------------------------------------------
 -- Teleport (Automation Tab)
 -----------------------------------------------------
 
