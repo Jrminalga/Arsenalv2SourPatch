@@ -6,8 +6,8 @@ local Luxt = Luxtl.CreateWindow("Sour Patch", 6105620301)
 local mainTab = Luxt:Tab("Visuals", 6087485864)
 local automationTab = Luxt:Tab("Automation")
 local movementTab = Luxt:Tab("Movement")
+local Weaponstab = Luxt:Tab("Weapons")
 local creditsTab = Luxt:Tab("Credits")
-local Examples = Luxt:Tab("Examples")
 
 -- Credits
 local cf = creditsTab:Section("Main Credits")
@@ -16,18 +16,6 @@ local cf1 = creditsTab:Section("UI Credits")
 cf1:Credit("xHeptc: UI Library")
 local cf2 = creditsTab:Section("Helping Credits")
 cf2:Credit("Salad: Helping")
-
--- Examples Tab
-local ff = Examples:Section("All Examples")
-ff:Label("Welcome to Wisteria GUI")
-ff:Button("TextButton Text", function() print("Clicked!") end)
-ff:Toggle("Toggle Me!", function(isToggled) print(isToggled) end)
-ff:KeyBind("Print('Hey') on bind", Enum.KeyCode.R, function() print('Hey') end)
-ff:TextBox("TextBox Info", "Epic PlaceHolder", function(getText) print(getText) end)
-ff:Slider("WalkSpeed", 16, 503, function(currentValue)
-    game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = currentValue
-end)
-ff:DropDown("Favorite Food?", {"Pizza", "Burger", "Sandwiches"}, function(food) print(food) end)
 
 -----------------------------------------------------
 -- ESP System (Visuals Tab)
@@ -1151,4 +1139,259 @@ player.CharacterAdded:Connect(function(char)
     if not SpeedSettings.Enabled then
         hum.WalkSpeed = 16
     end
+end)
+
+-----------------------------------------------------
+-- Fire Rate Modifier (Weapons Tab)
+-----------------------------------------------------
+local FireRateSection = Weaponstab:Section("Fire Rate Modifier")
+
+FireRateSection:Label("⚠️ Don't set FireRate to 0 or lower — it may break shooting!")
+
+local FireRateValue = 0.1 -- user-set value
+local FireRateEnabled = false
+local DefaultFireRates = {} -- stores original fire rates
+
+-----------------------------------------------------
+-- Store defaults first time
+-----------------------------------------------------
+local weaponsFolder = game:GetService("ReplicatedStorage"):FindFirstChild("Weapons")
+if weaponsFolder then
+    for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+        if weapon:IsA("Folder") then
+            local fireRate = weapon:FindFirstChild("FireRate")
+            if fireRate and fireRate:IsA("NumberValue") then
+                DefaultFireRates[weapon.Name] = fireRate.Value
+            end
+        end
+    end
+end
+
+-----------------------------------------------------
+-- Fire Rate Input
+-----------------------------------------------------
+FireRateSection:TextBox("Enter Fire Rate", "e.g. 0.05", function(input)
+    local num = tonumber(input)
+    if num and num > 0 then
+        FireRateValue = num
+        print("Set FireRate value to:", FireRateValue)
+        if FireRateEnabled then
+            for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+                if weapon:IsA("Folder") then
+                    local fireRate = weapon:FindFirstChild("FireRate")
+                    if fireRate and fireRate:IsA("NumberValue") then
+                        fireRate.Value = FireRateValue
+                    end
+                end
+            end
+            print("Applied new FireRate instantly since it's enabled.")
+        end
+    else
+        warn("Invalid FireRate input! Must be a number greater than 0.")
+    end
+end)
+
+-----------------------------------------------------
+-- Toggle to enable/disable Fire Rate Hack
+-----------------------------------------------------
+FireRateSection:Toggle("Enable Fire Rate Hack", function(state)
+    FireRateEnabled = state
+
+    if state then
+        print("🔥 Fire Rate Hack Enabled")
+        for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+            if weapon:IsA("Folder") then
+                local fireRate = weapon:FindFirstChild("FireRate")
+                if fireRate and fireRate:IsA("NumberValue") then
+                    fireRate.Value = FireRateValue
+                end
+            end
+        end
+    else
+        print("🔁 Fire Rate Hack Disabled — restoring defaults")
+        for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+            if weapon:IsA("Folder") then
+                local fireRate = weapon:FindFirstChild("FireRate")
+                if fireRate and fireRate:IsA("NumberValue") and DefaultFireRates[weapon.Name] then
+                    fireRate.Value = DefaultFireRates[weapon.Name]
+                end
+            end
+        end
+    end
+end)
+
+-----------------------------------------------------
+-- Force Full Automatic (Weapons Tab)
+-----------------------------------------------------
+local AutoSection = Weaponstab:Section("Force FullAuto")
+
+local ForceAutoEnabled = false
+local DefaultAutoValues = {} -- store original BoolValue for Auto
+
+local weaponsFolder = game:GetService("ReplicatedStorage"):FindFirstChild("Weapons")
+
+-- Backup original Auto values
+if weaponsFolder then
+    for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+        if weapon:IsA("Folder") then
+            local autoValue = weapon:FindFirstChild("Auto")
+            if autoValue and autoValue:IsA("BoolValue") then
+                DefaultAutoValues[weapon.Name] = autoValue.Value
+            end
+        end
+    end
+else
+    warn("Weapons folder not found in ReplicatedStorage!")
+end
+
+AutoSection:Label("💡 Forces all weapons to full auto mode.")
+
+AutoSection:Toggle("Enable Force Full Auto", function(state)
+    ForceAutoEnabled = state
+
+    if not weaponsFolder then return end
+
+    if state then
+        print("🔁 Force Full Automatic Enabled")
+        for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+            if weapon:IsA("Folder") then
+                local autoValue = weapon:FindFirstChild("Auto")
+                if autoValue and autoValue:IsA("BoolValue") then
+                    autoValue.Value = true
+                end
+            end
+        end
+    else
+        print("🔁 Force Full Automatic Disabled — restoring defaults")
+        for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+            if weapon:IsA("Folder") then
+                local autoValue = weapon:FindFirstChild("Auto")
+                if autoValue and autoValue:IsA("BoolValue") and DefaultAutoValues[weapon.Name] ~= nil then
+                    autoValue.Value = DefaultAutoValues[weapon.Name]
+                end
+            end
+        end
+    end
+end)
+
+
+
+-----------------------------------------------------
+-- Infinite Ammo Section (Weapons Tab)
+-----------------------------------------------------
+local AmmoSection = Weaponstab:Section("Infinite Ammo")
+
+local InfiniteAmmoEnabled = false
+local DefaultAmmoValues = {} -- stores original ammo per weapon
+local DefaultStoredAmmoValues = {} -- stores original stored ammo per weapon
+
+local weaponsFolder = game:GetService("ReplicatedStorage"):FindFirstChild("Weapons")
+
+-- Store defaults on startup
+if weaponsFolder then
+    for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+        if weapon:IsA("Folder") then
+            local ammoValue = weapon:FindFirstChild("Ammo")
+            local storedAmmoValue = weapon:FindFirstChild("StoredAmmo")
+            if ammoValue and ammoValue:IsA("IntValue") then
+                DefaultAmmoValues[weapon.Name] = ammoValue.Value
+            end
+            if storedAmmoValue and storedAmmoValue:IsA("IntValue") then
+                DefaultStoredAmmoValues[weapon.Name] = storedAmmoValue.Value
+            end
+        end
+    end
+else
+    warn("Weapons folder not found in ReplicatedStorage!")
+end
+
+AmmoSection:Toggle("Enable Infinite Ammo", function(state)
+    InfiniteAmmoEnabled = state
+
+    if state then
+        print("🔫 Infinite Ammo Enabled")
+        if weaponsFolder then
+            for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+                if weapon:IsA("Folder") then
+                    local ammoValue = weapon:FindFirstChild("Ammo")
+                    local storedAmmoValue = weapon:FindFirstChild("StoredAmmo")
+
+                    -- Set both to high safe values
+                    if ammoValue and ammoValue:IsA("IntValue") then
+                        ammoValue.Value = 500
+                    end
+                    if storedAmmoValue and storedAmmoValue:IsA("IntValue") then
+                        storedAmmoValue.Value = 300 -- 
+                    end
+                end
+            end
+        end
+    else
+        print("🔁 Infinite Ammo Disabled — restoring defaults")
+        if weaponsFolder then
+            for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+                if weapon:IsA("Folder") then
+                    local ammoValue = weapon:FindFirstChild("Ammo")
+                    local storedAmmoValue = weapon:FindFirstChild("StoredAmmo")
+
+                    if ammoValue and ammoValue:IsA("IntValue") and DefaultAmmoValues[weapon.Name] then
+                        ammoValue.Value = DefaultAmmoValues[weapon.Name]
+                    end
+                    if storedAmmoValue and storedAmmoValue:IsA("IntValue") and DefaultStoredAmmoValues[weapon.Name] then
+                        storedAmmoValue.Value = DefaultStoredAmmoValues[weapon.Name]
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-----------------------------------------------------
+-- Instant Reload Section (Weapons Tab)
+-----------------------------------------------------
+local ReloadSection = Weaponstab:Section("Instant Reload")
+
+local InstantReloadEnabled = false
+local DefaultReloadTimes = {}
+
+local weaponsFolder = game:GetService("ReplicatedStorage"):FindFirstChild("Weapons")
+
+-- Store default reload times
+if weaponsFolder then
+	for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+		if weapon:IsA("Folder") then
+			local reloadValue = weapon:FindFirstChild("ReloadTime")
+			if reloadValue and reloadValue:IsA("NumberValue") then
+				DefaultReloadTimes[weapon.Name] = reloadValue.Value
+			end
+		end
+	end
+else
+	warn("Weapons folder not found in ReplicatedStorage!")
+end
+
+ReloadSection:Toggle("Enable Instant Reload", function(state)
+	InstantReloadEnabled = state
+
+	if state then
+		print("⚡ Instant Reload Enabled")
+		for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+			if weapon:IsA("Folder") then
+				local reloadValue = weapon:FindFirstChild("ReloadTime")
+				if reloadValue and reloadValue:IsA("NumberValue") then
+					reloadValue.Value = 0
+				end
+			end
+		end
+	else
+		print("🔁 Instant Reload Disabled — restoring defaults")
+		for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+			if weapon:IsA("Folder") then
+				local reloadValue = weapon:FindFirstChild("ReloadTime")
+				if reloadValue and reloadValue:IsA("NumberValue") and DefaultReloadTimes[weapon.Name] then
+					reloadValue.Value = DefaultReloadTimes[weapon.Name]
+				end
+			end
+		end
+	end
 end)
