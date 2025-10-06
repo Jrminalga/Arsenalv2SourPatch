@@ -1395,3 +1395,111 @@ ReloadSection:Toggle("Enable Instant Reload", function(state)
 		end
 	end
 end)
+
+-----------------------------------------------------
+-- Force Max Range (Weapons Tab)
+-----------------------------------------------------
+local RangeSection = Weaponstab:Section("Force Max Range")
+
+local ForceRangeEnabled = false
+local DefaultRangeValues = {} -- store original Range values
+
+local weaponsFolder = game:GetService("ReplicatedStorage"):FindFirstChild("Weapons")
+
+-- Backup original Range values
+if weaponsFolder then
+    for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+        if weapon:IsA("Folder") then
+            local rangeValue = weapon:FindFirstChild("Range")
+            if rangeValue and rangeValue:IsA("IntValue") then
+                DefaultRangeValues[weapon.Name] = rangeValue.Value
+            end
+        end
+    end
+else
+    warn("Weapons folder not found in ReplicatedStorage!")
+end
+
+RangeSection:Label("💡 Sets all weapon Range to a very high value.")
+
+RangeSection:Toggle("Enable Force Max Range", function(state)
+    ForceRangeEnabled = state
+
+    if not weaponsFolder then return end
+
+    if state then
+        print("📏 Force Max Range Enabled")
+        for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+            if weapon:IsA("Folder") then
+                local rangeValue = weapon:FindFirstChild("Range")
+                if rangeValue and rangeValue:IsA("IntValue") then
+                    rangeValue.Value = 3000 -- high safe value
+                end
+            end
+        end
+    else
+        print("🔁 Force Max Range Disabled — restoring defaults")
+        for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+            if weapon:IsA("Folder") then
+                local rangeValue = weapon:FindFirstChild("Range")
+                if rangeValue and rangeValue:IsA("IntValue") and DefaultRangeValues[weapon.Name] ~= nil then
+                    rangeValue.Value = DefaultRangeValues[weapon.Name]
+                end
+            end
+        end
+    end
+end)
+
+-----------------------------------------------------
+-- Force Recoil Control 0 (Weapons Tab)
+-----------------------------------------------------
+local RecoilControlSection = Weaponstab:Section("Force Recoil Control 0")
+
+local ForceRecoilEnabled = false
+local DefaultRecoilControlValues = {}
+
+local weaponsFolder = game:GetService("ReplicatedStorage"):FindFirstChild("Weapons")
+
+-- Backup original RecoilControl values
+if weaponsFolder then
+    for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+        if weapon:IsA("Folder") then
+            local recoilValue = weapon:FindFirstChild("RecoilControl")
+            if recoilValue and recoilValue:IsA("NumberValue") then
+                DefaultRecoilControlValues[weapon.Name] = recoilValue.Value
+            end
+        end
+    end
+else
+    warn("Weapons folder not found in ReplicatedStorage!")
+end
+
+RecoilControlSection:Label("💡 Sets RecoilControl to 0 for all weapons.")
+
+RecoilControlSection:Toggle("Enable Force RecoilControl 0", function(state)
+    ForceRecoilEnabled = state
+
+    if not weaponsFolder then return end
+
+    if state then
+        print("🎯 Force RecoilControl Enabled")
+        for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+            if weapon:IsA("Folder") then
+                local recoilValue = weapon:FindFirstChild("RecoilControl")
+                if recoilValue and recoilValue:IsA("NumberValue") then
+                    recoilValue.Value = 0
+                end
+            end
+        end
+    else
+        print("🔁 Force RecoilControl Disabled — restoring defaults")
+        for _, weapon in ipairs(weaponsFolder:GetChildren()) do
+            if weapon:IsA("Folder") then
+                local recoilValue = weapon:FindFirstChild("RecoilControl")
+                if recoilValue and recoilValue:IsA("NumberValue") and DefaultRecoilControlValues[weapon.Name] ~= nil then
+                    recoilValue.Value = DefaultRecoilControlValues[weapon.Name]
+                end
+            end
+        end
+    end
+end)
